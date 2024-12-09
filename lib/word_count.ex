@@ -21,37 +21,41 @@ defmodule WordCount do
       "Final word count: %{\"word1\" => 5, \"word2\" => 2}"
 
   """
+
   def count(directory) do
-    reducer_pid = spawn(Reducer, :wait, [self()])
+    reducer_pid = spawn_link(Reducer, :wait, [self()])
 
     file_paths(directory)
-    |> Enum.map(fn file_path ->
-      spawn(Mapper, :map, [file_path, reducer_pid, self()])
-    end)
-    |> Enum.count()
-    |> wait_for_mappers()
+      |> Enum.map(fn file_path ->
+        {pid, _} = spawn_monitor(Mapper, :map, [file_path, reducer_pid, self()])
+        pid
+      end) |> wait_for_mappers()
 
-    # After all mappers are done, stop the reducer and get the final word count
-    receive_reduced_data(reducer_pid)
+    # After confirming all mappers are done, stop the reducer
+    send(reducer_pid, :stop)
+    receive_reduced_data()
   end
 
+  defp wait_for_mappers([]) do
+    IO.puts("All mappers done")
+  end
 
-  defp wait_for_mappers(remaining) when remaining > 0 do
+  defp wait_for_mappers(pids) do
     receive do
       {:mapper_done, pid} ->
         IO.puts("Mapper done: #{inspect(pid)}")
-        wait_for_mappers(remaining - 1)
+        wait_for_mappers(List.delete(pids, pid))
+
+      {:DOWN, _, :process, pid, {%RuntimeError{} = error, _stacktrace}} ->
+        IO.puts("Mapper failed: #{inspect(pid)} with error: #{inspect(error)}")
+        wait_for_mappers(List.delete(pids, pid))
     end
   end
 
-  defp wait_for_mappers(0) do
-    IO.puts("All mappers done")
-  end
-  defp receive_reduced_data(reducer_pid) do
-    send(reducer_pid, :stop)
-
+  defp receive_reduced_data() do
     receive do
-      {:reduced, data} -> IO.inspect(data, label: "Final word count")
+      {:reduced, data} ->
+        IO.inspect(data, label: "Final word count")
     end
   end
 

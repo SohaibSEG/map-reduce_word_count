@@ -47,6 +47,10 @@ defmodule Mapper do
 
   """
   def map(file_path, reducer_pid, parent_pid) do
+    # simulate Randomly crashing the process with a probability of 1/100
+    if :rand.uniform(100) == 1 do
+      raise "Random crash in Mapper #{inspect(self())}"
+    end
     case File.read(file_path) do
       {:ok, content} ->
         IO.puts("Mapping: #{file_path}")
